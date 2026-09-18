@@ -2474,16 +2474,19 @@ input:checked + .slider:before {
 }
 .price-old {
     color: var(--text-muted);
-    font-size: 11px;
+    font-size: 14px;
     text-decoration: line-through;
+    text-decoration-color: var(--error);
+    text-decoration-thickness: 2px;
     direction: ltr;
+    font-weight: 600;
 }
 .price-new {
     color: var(--success);
-    font-size: 16px;
+    font-size: 20px;
     font-weight: 800;
     direction: ltr;
-    text-shadow: 0 0 10px rgba(16,185,129,0.6);
+    text-shadow: 0 0 15px rgba(16,185,129,0.6);
 }
 .discount-badge {
     display: inline-flex;
@@ -2495,10 +2498,16 @@ input:checked + .slider:before {
     font-weight: 800;
     padding: 3px 8px;
     border-radius: 8px;
+    box-shadow: 0 0 12px rgba(16,185,129,0.5);
+    animation: discountPulse 2s ease-in-out infinite;
+}
+@keyframes discountPulse {
+    0%, 100% { transform: scale(1); }
+    50%      { transform: scale(1.05); }
 }
 
 /* ============================================================
-   FIX #2 — Order Status Modal Styles
+   FIX #2 — Order Status Modal & Tracking Code
    ============================================================ */
 .status-modal-icon {
     width: 90px;
@@ -2514,31 +2523,31 @@ input:checked + .slider:before {
     width: 44px;
     height: 44px;
 }
-.status-modal-icon.approved {
+.status-modal-icon.completed {
     background: linear-gradient(135deg, rgba(16,185,129,0.25), rgba(5,150,105,0.15));
     border: 2px solid var(--success);
     box-shadow: 0 0 30px rgba(16,185,129,0.5);
     animation: successPulse 1.8s ease-in-out infinite;
 }
-.status-modal-icon.approved svg { color: var(--success); }
+.status-modal-icon.completed svg { color: var(--success); }
 .status-modal-icon.pending {
     background: linear-gradient(135deg, rgba(251,191,36,0.25), rgba(217,119,6,0.15));
     border: 2px solid var(--warning);
     box-shadow: 0 0 30px rgba(251,191,36,0.5);
 }
 .status-modal-icon.pending svg { color: var(--warning); animation: spin 2s linear infinite; }
-.status-modal-icon.rejected {
+.status-modal-icon.canceled {
     background: linear-gradient(135deg, rgba(239,68,68,0.25), rgba(220,38,38,0.15));
     border: 2px solid var(--error);
     box-shadow: 0 0 30px rgba(239,68,68,0.5);
 }
-.status-modal-icon.rejected svg { color: var(--error); }
-.status-modal-icon.in_progress {
+.status-modal-icon.canceled svg { color: var(--error); }
+.status-modal-icon.processing {
     background: linear-gradient(135deg, rgba(0,229,255,0.25), rgba(14,165,233,0.15));
     border: 2px solid var(--cyan);
     box-shadow: 0 0 30px rgba(0,229,255,0.5);
 }
-.status-modal-icon.in_progress svg { color: var(--cyan); }
+.status-modal-icon.processing svg { color: var(--cyan); }
 
 @keyframes successPulse {
     0%, 100% { transform: scale(1); }
@@ -2550,10 +2559,10 @@ input:checked + .slider:before {
     font-weight: 800;
     margin-bottom: 8px;
 }
-.status-modal-title.approved    { color: var(--success); }
-.status-modal-title.pending     { color: var(--warning); }
-.status-modal-title.rejected    { color: var(--error); }
-.status-modal-title.in_progress { color: var(--cyan); }
+.status-modal-title.completed  { color: var(--success); }
+.status-modal-title.pending    { color: var(--warning); }
+.status-modal-title.canceled   { color: var(--error); }
+.status-modal-title.processing { color: var(--cyan); }
 
 .status-modal-sub {
     color: var(--text-secondary);
@@ -2640,6 +2649,236 @@ input:checked + .slider:before {
     letter-spacing: 1px;
 }
 
+/* Tracking Code Box */
+.tracking-code-box {
+    background: linear-gradient(135deg, rgba(0,229,255,0.12), rgba(14,165,233,0.06));
+    border: 1.5px dashed rgba(0,229,255,0.5);
+    border-radius: 14px;
+    padding: 14px 16px;
+    margin-bottom: 14px;
+    text-align: center;
+    position: relative;
+}
+.tracking-code-label {
+    color: var(--cyan);
+    font-size: 11px;
+    font-weight: 700;
+    margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    letter-spacing: 0.5px;
+}
+.tracking-code-label svg {
+    width: 14px;
+    height: 14px;
+}
+.tracking-code-value {
+    color: var(--text-primary);
+    font-size: 18px;
+    font-weight: 800;
+    font-family: 'Courier New', monospace;
+    letter-spacing: 2px;
+    direction: ltr;
+    word-break: break-all;
+    margin-bottom: 10px;
+    text-shadow: 0 0 12px rgba(0,229,255,0.4);
+}
+.tracking-copy-btn {
+    background: rgba(0,229,255,0.15);
+    border: 1px solid rgba(0,229,255,0.4);
+    color: var(--cyan);
+    padding: 6px 14px;
+    border-radius: 10px;
+    font-family: inherit;
+    font-size: 11px;
+    font-weight: 700;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    transition: all 0.3s;
+}
+.tracking-copy-btn:hover {
+    background: rgba(0,229,255,0.25);
+    box-shadow: 0 0 15px rgba(0,229,255,0.4);
+}
+.tracking-copy-btn svg {
+    width: 12px;
+    height: 12px;
+}
+
+/* ============================================================
+   FIX #2 (نسخه نهایی) — نمایش زنده وضعیت سفارشات
+   ============================================================ */
+
+/* نوار «بروزرسانی همه» بالای لیست */
+.refresh-all-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    background: linear-gradient(135deg, rgba(0,229,255,0.08), rgba(14,165,233,0.04));
+    border: 1px solid rgba(0,229,255,0.25);
+    border-radius: 14px;
+    padding: 12px 14px;
+    margin-bottom: 14px;
+    flex-wrap: wrap;
+}
+.refresh-all-text {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--cyan);
+    font-size: 11px;
+    font-weight: 700;
+    flex: 1;
+    min-width: 0;
+}
+.refresh-all-text svg { width: 16px; height: 16px; flex-shrink: 0; }
+.refresh-all-btn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: linear-gradient(135deg, var(--cyan), var(--blue));
+    color: #050508;
+    border: none;
+    padding: 8px 14px;
+    border-radius: 10px;
+    font-family: inherit;
+    font-size: 11px;
+    font-weight: 800;
+    cursor: pointer;
+    transition: all 0.3s;
+    flex-shrink: 0;
+}
+.refresh-all-btn svg { width: 12px; height: 12px; }
+.refresh-all-btn:hover:not(:disabled) {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 20px -5px rgba(0,229,255,0.5);
+}
+.refresh-all-btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+.refresh-all-btn.spinning svg {
+    animation: spin 1s linear infinite;
+}
+
+/* کارت سفارش با نوار مرزی رنگی وضعیت */
+.order-card {
+    position: relative;
+    padding-right: 18px;
+}
+.order-card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 4px;
+    height: 100%;
+    background: var(--status-border, linear-gradient(180deg, var(--cyan), var(--blue)));
+    border-top-right-radius: 16px;
+    border-bottom-right-radius: 16px;
+    transition: background 0.4s ease;
+}
+.order-card.vpn-order::before {
+    background: linear-gradient(180deg, var(--purple), var(--pink));
+}
+
+/* دکمه رفرش کوچک */
+.order-refresh-btn {
+    width: 32px;
+    height: 32px;
+    border-radius: 9px;
+    background: rgba(0,229,255,0.12);
+    border: 1px solid rgba(0,229,255,0.35);
+    color: var(--cyan);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.3s;
+    flex-shrink: 0;
+}
+.order-refresh-btn svg { width: 16px; height: 16px; }
+.order-refresh-btn:hover {
+    background: rgba(0,229,255,0.22);
+    transform: rotate(180deg);
+}
+.order-refresh-btn.done {
+    background: rgba(16,185,129,0.12);
+    border-color: rgba(16,185,129,0.4);
+    color: var(--success);
+}
+.order-refresh-btn.done:hover { transform: none; }
+
+/* برچسب کامنت دلخواه */
+.custom-comment-tag {
+    background: linear-gradient(135deg, var(--purple), var(--pink));
+    color: white;
+    font-size: 9px;
+    font-weight: 800;
+    padding: 2px 6px;
+    border-radius: 6px;
+}
+
+/* نوار برجسته وضعیت */
+.order-status-banner {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 14px;
+    border-radius: 12px;
+    margin-bottom: 12px;
+    font-size: 12px;
+    font-weight: 800;
+    border: 1px solid transparent;
+    transition: all 0.4s ease;
+}
+.order-status-banner.completed {
+    background: linear-gradient(135deg, rgba(16,185,129,0.15), rgba(5,150,105,0.08));
+    border-color: rgba(16,185,129,0.4);
+    color: var(--success);
+}
+.order-status-banner.pending {
+    background: linear-gradient(135deg, rgba(251,191,36,0.15), rgba(217,119,6,0.08));
+    border-color: rgba(251,191,36,0.4);
+    color: var(--warning);
+}
+.order-status-banner.processing {
+    background: linear-gradient(135deg, rgba(0,229,255,0.15), rgba(14,165,233,0.08));
+    border-color: rgba(0,229,255,0.4);
+    color: var(--cyan);
+}
+.order-status-banner.canceled {
+    background: linear-gradient(135deg, rgba(239,68,68,0.15), rgba(220,38,38,0.08));
+    border-color: rgba(239,68,68,0.4);
+    color: var(--error);
+}
+.status-banner-emoji { font-size: 16px; }
+.status-banner-label { flex: 1; }
+.status-banner-loading { display: inline-flex; align-items: center; }
+
+/* اسپینر کوچک */
+.mini-spinner {
+    width: 14px;
+    height: 14px;
+    border: 2px solid rgba(0,229,255,0.2);
+    border-top-color: var(--cyan);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    display: inline-block;
+}
+
+/* فیلدهای اضافی (start_count / remains) */
+.order-info-item.status-extra {
+    border-top: 1px dashed var(--border-color);
+    padding-top: 8px;
+    margin-top: 4px;
+}
+
 /* ============ Responsive ============ */
 @media (max-width: 480px) {
     body { padding: 12px 12px 120px; }
@@ -2658,4 +2897,5 @@ input:checked + .slider:before {
     .star-btn { width: 30px; height: 30px; font-size: 18px; left: 10px; }
     .status-modal-icon { width: 80px; height: 80px; }
     .status-modal-icon svg { width: 38px; height: 38px; }
+    .tracking-code-value { font-size: 15px; letter-spacing: 1px; }
 }
