@@ -46,8 +46,10 @@ const CODE_LIFETIME         = 120;
 const BALANCE_REVEAL_TIME   = 10;
 const GLOBAL_TIMER_SECONDS  = 180;
 
-// FIX #1 — Admin VPN discount percentage (25%)
-const ADMIN_VPN_DISCOUNT = 25;
+// FIX #1 — درصد تخفیف‌ها
+const ADMIN_VPN_DISCOUNT  = 25;   // تخفیف ادمین
+const AGENT_DISCOUNT      = 30;   // تخفیف نماینده
+const NORMAL_VPN_DISCOUNT = 25;   // تخفیف کاربر عادی
 
 const CORS_PROXIES = [
     'https://api.allorigins.win/raw?url=',
@@ -55,13 +57,11 @@ const CORS_PROXIES = [
     'https://api.codetabs.com/v1/proxy?quest='
 ];
 
-/* FIX #3 — Custom Comment service availability.
-   Only Instagram + specific service IDs are allowed to use the custom-comment flow.
-   Everything else → normal quantity-based flow. */
+/* FIX #3 — Custom Comment فقط روی اینستاگرام و برای این سرویس‌ها */
 const CUSTOM_COMMENT_ALLOWED_SERVICE_IDS = ['994', '2191', '1560', '2975', '3428', '3276'];
 const CUSTOM_COMMENT_ALLOWED_PLATFORM    = 'instagram';
 
-// Legacy config retained for backward compat (no longer the source of truth).
+// Legacy config (دیگر استفاده نمی‌شود)
 const CUSTOM_COMMENT_SERVICES = {
     'server1': ['19172'],
     'server2': ['200', '194'],
@@ -90,9 +90,6 @@ const PLATFORMS = {
 // ============================================================
 // VPN CONFIGURATION
 // ============================================================
-const AGENT_DISCOUNT       = 30;
-const NORMAL_VPN_DISCOUNT  = 25;
-
 const VPN_PRICING = {
     openvpn: {
         single: {
@@ -222,10 +219,12 @@ let state = {
     editingServiceId: null,
     globalTimerInterval: null,
     globalTimerCount: 180,
+
+    // FIX #2 — cache وضعیت سفارشات
     orderStatusCache: {},
 
-    // FIX #2 — currently open order in the status modal
-    currentStatusOrder: null
+    // FIX #2 — جلوگیری از درخواست همزمان
+    _statusFetchingInProgress: false
 };
 
 // بارگذاری از localStorage
@@ -319,14 +318,11 @@ function calculateFinalRate(rate) {
 }
 
 // ============================================================
-// VPN DISCOUNT
+// FIX #1 — VPN DISCOUNT
 // ============================================================
-/* FIX #1 — Admin users get an extra 25% discount on top of the base
-   VPN pricing (which is already a "discounted" price for normal users).
-   The old behaviour returned 0 for admins; we now return ADMIN_VPN_DISCOUNT. */
 function getVpnDiscount() {
     if (state.userRole === 'admin') return ADMIN_VPN_DISCOUNT;
-    if (state.isAgent) return AGENT_DISCOUNT;
+    if (state.isAgent)              return AGENT_DISCOUNT;
     return NORMAL_VPN_DISCOUNT;
 }
 
@@ -335,42 +331,27 @@ function calculateVpnFinalPrice(basePrice) {
     return Math.round(basePrice * (100 - discount) / 100);
 }
 
-/* FIX #1 — helper: returns the raw price the user should be charged,
-   plus the original price for strikethrough display.
-   For admins: original = basePrice, final = basePrice - 25%.
-   For others : original = null (no strikethrough shown). */
 function getVpnPriceBreakdown(basePrice) {
-    if (state.userRole === 'admin') {
-        const final = Math.round(basePrice * (100 - ADMIN_VPN_DISCOUNT) / 100);
-        return { original: basePrice, final, discount: ADMIN_VPN_DISCOUNT };
-    }
-    return { original: null, final: calculateVpnFinalPrice(basePrice), discount: 0 };
+    const discount = getVpnDiscount();
+    const final = Math.round(basePrice * (100 - discount) / 100);
+    return { original: basePrice, final, discount };
+}
+
+function getVpnDiscountLabel() {
+    if (state.userRole === 'admin') return '👑 تخفیف ادمین';
+    if (state.isAgent)              return '🏆 تخفیف نماینده';
+    return '🎁 تخفیف ویژه';
 }
 
 // ============================================================
-// CUSTOM COMMENTS DETECTION
+// FIX #3 — CUSTOM COMMENTS DETECTION
 // ============================================================
-/* FIX #3 — Custom Comment is now STRICTLY limited to Instagram platform
-   AND to specific service IDs. Everything else uses the normal
-   quantity-based flow.
-
-   We now require an explicit platform match. If `state.platform` is not
-   set (e.g. when arriving via a favourites shortcut) we infer it from
-   the service name/category as a best-effort fallback — but the service
-   ID whitelist is the ultimate gate. */
 function isCustomCommentsService(svc) {
     if (!svc) return false;
-
-    // 1) Service ID must be in the whitelist
     const serviceId = String(svc.service);
     if (!CUSTOM_COMMENT_ALLOWED_SERVICE_IDS.includes(serviceId)) return false;
-
-    // 2) Platform must be Instagram.
-    //    Prefer explicit state.platform, otherwise infer from service text.
     let platform = state.platform;
-    if (!platform) {
-        platform = extractPlatformForService(svc);
-    }
+    if (!platform) platform = extractPlatformForService(svc);
     return platform === CUSTOM_COMMENT_ALLOWED_PLATFORM;
 }
 
@@ -682,7 +663,7 @@ function switchPage(page) {
 }
 
 // ============================================================
-// GLOBAL TIMER (پنهان)
+// GLOBAL TIMER
 // ============================================================
 function saveTimerState() {
     store.set('vex_timer_state', {
@@ -1403,7 +1384,6 @@ function renderServices(services) {
 
     services.forEach(svc => {
         const finalRate = calculateFinalRate(svc.rate);
-        // FIX #3 — isCustom now respects platform + ID whitelist
         const isCustom = isCustomCommentsService(svc);
         const isFav = isFavorite(state.server.id, svc.service);
 
@@ -1445,7 +1425,6 @@ function renderServiceDetails(svc) {
     const min = parseInt(svc.min || 0);
     const max = parseInt(svc.max || 0);
     const finalRate = calculateFinalRate(svc.rate);
-    // FIX #3 — respects platform + ID whitelist
     const isCustom = isCustomCommentsService(svc);
 
     if (isCustom) {
@@ -1794,31 +1773,110 @@ function showMsg(id, type, text) {
 }
 
 // ============================================================
-// ORDER STATUS EMOJI
+// FIX #2 — ORDER STATUS HELPERS
 // ============================================================
-function getStatusEmoji(status) {
-    const s = (status || '').toLowerCase();
-    if (s === 'completed' || s === 'approved') return '🟢';
-    if (s === 'canceled' || s === 'cancelled' || s === 'rejected') return '🔴';
-    return '🟡';
-}
-function getStatusClass(status) {
-    const s = (status || '').toLowerCase();
-    if (s === 'completed' || s === 'approved') return 'completed';
-    if (s === 'canceled' || s === 'cancelled' || s === 'rejected') return 'canceled';
-    if (s === 'processing' || s === 'in progress' || s === 'inprogress' || s === 'in_progress') return 'processing';
+function normalizeStatus(rawStatus) {
+    const s = String(rawStatus || '').toLowerCase().trim();
+    if (s === 'completed' || s === 'complete' || s === 'approved') return 'completed';
+    if (s === 'canceled' || s === 'cancelled' || s === 'rejected' || s === 'fail' || s === 'failed') return 'canceled';
+    if (s === 'in progress' || s === 'inprogress' || s === 'in_progress' || s === 'processing') return 'processing';
+    if (s === 'pending' || s === 'awaiting' || s === 'waiting') return 'pending';
+    if (s === 'partial') return 'processing';
     return 'pending';
 }
+
+function getStatusEmoji(status) {
+    const s = normalizeStatus(status);
+    if (s === 'completed') return '🟢';
+    if (s === 'canceled')  return '🔴';
+    if (s === 'processing') return '🔵';
+    return '🟡';
+}
+
+function getStatusClass(status) {
+    const s = normalizeStatus(status);
+    if (s === 'completed') return 'completed';
+    if (s === 'canceled')  return 'canceled';
+    if (s === 'processing') return 'processing';
+    return 'pending';
+}
+
 function getStatusLabel(status) {
-    const s = (status || '').toLowerCase();
-    if (s === 'completed' || s === 'approved') return '✅ تایید شده';
-    if (s === 'canceled' || s === 'cancelled' || s === 'rejected') return '❌ رد شده';
-    if (s === 'processing' || s === 'in progress' || s === 'inprogress' || s === 'in_progress') return '⏳ در حال انجام';
+    const s = normalizeStatus(status);
+    if (s === 'completed')  return '✅ تایید شده';
+    if (s === 'canceled')   return '❌ لغو شده';
+    if (s === 'processing') return '⚙️ در حال انجام';
     return '⏱️ در حال انتظار';
 }
 
+function getStatusBorderColor(status) {
+    const s = normalizeStatus(status);
+    if (s === 'completed')  return 'linear-gradient(180deg, #10b981, #059669)';
+    if (s === 'canceled')   return 'linear-gradient(180deg, #ef4444, #dc2626)';
+    if (s === 'processing') return 'linear-gradient(180deg, #00e5ff, #0ea5e9)';
+    return 'linear-gradient(180deg, #fbbf24, #f59e0b)';
+}
+
 // ============================================================
-// RENDER ORDERS
+// FIX #2 — Bulk & Single Status Fetch
+// ============================================================
+async function fetchBulkStatuses(server, orderIds) {
+    if (!orderIds || orderIds.length === 0) return {};
+
+    try {
+        const result = await callAPI(server, {
+            action: 'status',
+            orders: orderIds.join(',')
+        });
+
+        if (!result || typeof result !== 'object') return {};
+
+        const statuses = {};
+        Object.keys(result).forEach(key => {
+            const item = result[key];
+            if (item && typeof item === 'object' && item.status) {
+                statuses[key] = {
+                    status: item.status,
+                    charge: item.charge,
+                    start_count: item.start_count,
+                    remains: item.remains,
+                    order: item.order || key
+                };
+            } else if (typeof item === 'string') {
+                statuses[key] = { status: 'unknown', error: item };
+            }
+        });
+        return statuses;
+    } catch (err) {
+        console.warn('bulk status failed:', err.message);
+        return {};
+    }
+}
+
+async function fetchSingleStatus(server, orderId) {
+    try {
+        const result = await callAPI(server, {
+            action: 'status',
+            order: orderId
+        });
+        if (result && result.status) {
+            return {
+                status: result.status,
+                charge: result.charge,
+                start_count: result.start_count,
+                remains: result.remains,
+                order: result.order || orderId
+            };
+        }
+        return null;
+    } catch (err) {
+        console.warn('single status failed:', err.message);
+        return null;
+    }
+}
+
+// ============================================================
+// FIX #2 — RENDER ORDERS
 // ============================================================
 function renderOrders() {
     const container = document.getElementById('ordersList');
@@ -1838,9 +1896,34 @@ function renderOrders() {
     }
 
     container.innerHTML = '';
+
+    // نوار «بروزرسانی همه» (فقط اگر سفارش سوشال داریم)
+    const socialOrders = orders.filter(o => !o.isVpn);
+    if (socialOrders.length > 0) {
+        const refreshAllBar = document.createElement('div');
+        refreshAllBar.className = 'refresh-all-bar';
+        refreshAllBar.innerHTML = `
+            <div class="refresh-all-text">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+                وضعیت ${socialOrders.length} سفارش سوشال به‌صورت خودکار بروزرسانی می‌شود
+            </div>
+            <button class="refresh-all-btn" onclick="refreshAllOrdersStatuses()" id="refreshAllBtn">
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+                بروزرسانی همه
+            </button>
+        `;
+        container.appendChild(refreshAllBar);
+    }
+
+    // رندر همه سفارشات
     orders.forEach(order => {
         const card = document.createElement('div');
         card.className = 'order-card' + (order.isVpn ? ' vpn-order' : '');
+        card.dataset.orderId = order.orderId;
 
         if (order.isVpn) {
             card.innerHTML = `
@@ -1860,22 +1943,36 @@ function renderOrders() {
                 </div>
             `;
         } else {
-            const cachedStatus = state.orderStatusCache[order.orderId] || order.status || 'pending';
-            const emoji = getStatusEmoji(cachedStatus);
-            const isCompleted = ['completed', 'approved'].includes((cachedStatus || '').toLowerCase());
+            const currentStatus = state.orderStatusCache[order.orderId]?.status || order.status || 'pending';
+            const statusClass = getStatusClass(currentStatus);
+            const statusEmoji = getStatusEmoji(currentStatus);
+            const statusLabel = getStatusLabel(currentStatus);
+            const borderColor = getStatusBorderColor(currentStatus);
 
-            /* FIX #2 — the refresh button now opens the status modal instead of
-               silently calling the API. Data-onclick is inline; it stops the
-               spinner by re-rendering after the API responds. */
+            card.style.setProperty('--status-border', borderColor);
+
             card.innerHTML = `
                 <div class="order-top">
                     <div class="order-service-name">
-                        <span class="status-emoji">${emoji}</span>
+                        <span class="status-emoji">${statusEmoji}</span>
                         ${order.serviceName}
-                        ${order.isCustomComment ? '<span style="background:linear-gradient(135deg,var(--purple),var(--pink));color:white;font-size:9px;font-weight:800;padding:2px 6px;border-radius:6px;">💬 کامنت</span>' : ''}
+                        ${order.isCustomComment ? '<span class="custom-comment-tag">💬 کامنت</span>' : ''}
                     </div>
-                    <button class="order-refresh-btn" data-order-id="${order.orderId}" title="مشاهده وضعیت سفارش">🔄</button>
+                    <button class="order-refresh-btn" data-order-id="${order.orderId}" title="بروزرسانی وضعیت">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                        </svg>
+                    </button>
                 </div>
+
+                <div class="order-status-banner ${statusClass}" id="status-banner-${order.orderId}">
+                    <span class="status-banner-emoji">${statusEmoji}</span>
+                    <span class="status-banner-label">${statusLabel}</span>
+                    <span class="status-banner-loading" id="status-loading-${order.orderId}" style="display:none;">
+                        <span class="mini-spinner"></span>
+                    </span>
+                </div>
+
                 <div class="order-info-grid">
                     <div class="order-info-item"><span class="order-info-label">🆔 کد:</span><span class="order-info-value">${order.orderId}</span></div>
                     <div class="order-info-item"><span class="order-info-label">🌐 سرور:</span><span class="order-info-value">${order.serverName}</span></div>
@@ -1884,167 +1981,280 @@ function renderOrders() {
                     <div class="order-info-item"><span class="order-info-label">📅 تاریخ:</span><span class="order-info-value">${order.date}</span></div>
                     <div class="order-info-item"><span class="order-info-label">🕐 ساعت:</span><span class="order-info-value">${order.time}</span></div>
                     <div class="order-info-item" style="grid-column: 1 / -1;"><span class="order-info-label">🔗 لینک:</span><span class="order-info-value link">${order.link}</span></div>
-                </div>
-                <div class="order-status-row" id="status-row-${order.orderId}">
-                    <div class="order-status-text ${getStatusClass(cachedStatus)}">${getStatusLabel(cachedStatus)}</div>
+
+                    <div class="order-info-item status-extra" id="status-extra-start-${order.orderId}" style="display:none;">
+                        <span class="order-info-label">🚀 شروع شده:</span>
+                        <span class="order-info-value" id="status-start-${order.orderId}">—</span>
+                    </div>
+                    <div class="order-info-item status-extra" id="status-extra-remains-${order.orderId}" style="display:none;">
+                        <span class="order-info-label">📉 باقی‌مانده:</span>
+                        <span class="order-info-value" id="status-remains-${order.orderId}">—</span>
+                    </div>
                 </div>
             `;
         }
         container.appendChild(card);
     });
 
-    // Attach click handlers for refresh buttons (FIX #2)
+    // اتصال رویداد کلیک به دکمه‌های رفرش تکی
     document.querySelectorAll('.order-refresh-btn').forEach(btn => {
         btn.addEventListener('click', (e) => {
             e.stopPropagation();
-            openOrderStatusModal(btn.dataset.orderId);
+            refreshSingleOrderStatus(btn.dataset.orderId);
         });
     });
+
+    // شروع خودکار پیگیری همه سفارشات
+    autoFetchAllStatuses();
 }
 
-/* ============================================================
-   FIX #2 — Order Status Modal
-   ============================================================ */
+// ============================================================
+// FIX #2 — AUTO FETCH ALL
+// ============================================================
+async function autoFetchAllStatuses() {
+    if (state._statusFetchingInProgress) return;
+    state._statusFetchingInProgress = true;
 
-/**
- * Opens the centered status modal for a given order.
- * Immediately shows the cached/pending state, then fetches fresh
- * data from the API in the background and updates the modal.
- */
-async function openOrderStatusModal(orderId) {
+    try {
+        const orders = getOrders().filter(o => !o.isVpn);
+        if (orders.length === 0) return;
+
+        // گروه‌بندی بر اساس سرور
+        const byServer = {};
+        orders.forEach(o => {
+            if (!byServer[o.serverId]) byServer[o.serverId] = [];
+            byServer[o.serverId].push(o);
+        });
+
+        for (const [serverId, serverOrders] of Object.entries(byServer)) {
+            const server = getServers().find(s => s.id === serverId);
+            if (!server) continue;
+
+            const orderIds = serverOrders.map(o => o.orderId);
+
+            orderIds.forEach(id => showStatusLoading(id, true));
+
+            const statuses = await fetchBulkStatuses(server, orderIds);
+
+            orderIds.forEach(id => {
+                const statusData = statuses[id];
+                if (statusData && statusData.status) {
+                    updateOrderStatusUI(id, statusData);
+                } else {
+                    showStatusLoading(id, false);
+                }
+            });
+        }
+    } finally {
+        state._statusFetchingInProgress = false;
+    }
+}
+
+// ============================================================
+// FIX #2 — REFRESH ALL (دکمه دستی)
+// ============================================================
+async function refreshAllOrdersStatuses() {
+    const btn = document.getElementById('refreshAllBtn');
+    if (btn) {
+        btn.disabled = true;
+        btn.classList.add('spinning');
+    }
+
+    // پاک کردن cache برای فورس رفرش
+    const orders = getOrders().filter(o => !o.isVpn);
+    orders.forEach(o => {
+        if (state.orderStatusCache[o.orderId]) {
+            delete state.orderStatusCache[o.orderId];
+        }
+    });
+
+    await autoFetchAllStatuses();
+
+    if (btn) {
+        btn.disabled = false;
+        btn.classList.remove('spinning');
+    }
+
+    showToast('وضعیت همه سفارشات بروزرسانی شد', 'success');
+}
+
+// ============================================================
+// FIX #2 — REFRESH SINGLE
+// ============================================================
+async function refreshSingleOrderStatus(orderId) {
     const orders = getOrders();
     const order = orders.find(o => o.orderId === orderId);
     if (!order || order.isVpn) return;
 
+    const server = getServers().find(s => s.id === order.serverId);
+    if (!server) return;
+
+    showStatusLoading(orderId, true);
+
+    const statusData = await fetchSingleStatus(server, orderId);
+
+    if (statusData) {
+        updateOrderStatusUI(orderId, statusData);
+        showToast('وضعیت سفارش بروزرسانی شد', 'success');
+    } else {
+        showStatusLoading(orderId, false);
+        showToast('خطا در دریافت وضعیت', 'warning');
+    }
+}
+
+// ============================================================
+// FIX #2 — UI HELPERS
+// ============================================================
+function showStatusLoading(orderId, show) {
+    const loadingEl = document.getElementById(`status-loading-${orderId}`);
+    if (loadingEl) {
+        loadingEl.style.display = show ? 'inline-flex' : 'none';
+    }
+}
+
+function updateOrderStatusUI(orderId, statusData) {
+    const rawStatus = statusData.status;
+    const statusClass = getStatusClass(rawStatus);
+    const statusEmoji = getStatusEmoji(rawStatus);
+    const statusLabel = getStatusLabel(rawStatus);
+    const borderColor = getStatusBorderColor(rawStatus);
+
+    // ذخیره در cache
+    state.orderStatusCache[orderId] = {
+        status: normalizeStatus(rawStatus),
+        rawStatus,
+        charge: statusData.charge,
+        start_count: statusData.start_count,
+        remains: statusData.remains,
+        fetchedAt: Date.now()
+    };
+
+    // ذخیره در localStorage
+    updateOrder(orderId, {
+        status: normalizeStatus(rawStatus),
+        statusRaw: rawStatus,
+        lastChecked: Date.now()
+    });
+
+    // آپدیت banner
+    const banner = document.getElementById(`status-banner-${orderId}`);
+    if (banner) {
+        banner.className = `order-status-banner ${statusClass}`;
+        banner.innerHTML = `
+            <span class="status-banner-emoji">${statusEmoji}</span>
+            <span class="status-banner-label">${statusLabel}</span>
+            <span class="status-banner-loading" id="status-loading-${orderId}" style="display:none;">
+                <span class="mini-spinner"></span>
+            </span>
+        `;
+    }
+
+    // آپدیت ایموجی سر کارت + رنگ مرزی
+    const card = document.querySelector(`.order-card[data-order-id="${orderId}"]`);
+    if (card) {
+        card.style.setProperty('--status-border', borderColor);
+
+        const emojiEl = card.querySelector('.order-service-name .status-emoji');
+        if (emojiEl) emojiEl.textContent = statusEmoji;
+    }
+
+    // آپدیت اطلاعات اضافی
+    const startEl = document.getElementById(`status-start-${orderId}`);
+    const remainsEl = document.getElementById(`status-remains-${orderId}`);
+    const startWrap = document.getElementById(`status-extra-start-${orderId}`);
+    const remainsWrap = document.getElementById(`status-extra-remains-${orderId}`);
+
+    if (statusData.start_count && statusData.start_count !== '0' && startEl && startWrap) {
+        startEl.textContent = formatToman(parseInt(statusData.start_count) || 0);
+        startWrap.style.display = 'flex';
+    }
+    if (statusData.remains && statusData.remains !== '0' && remainsEl && remainsWrap) {
+        remainsEl.textContent = formatToman(parseInt(statusData.remains) || 0);
+        remainsWrap.style.display = 'flex';
+    }
+
+    // تغییر رنگ دکمه رفرش اگر تمام شد
+    if (statusClass === 'completed' || statusClass === 'canceled') {
+        const refreshBtn = card?.querySelector('.order-refresh-btn');
+        if (refreshBtn) {
+            refreshBtn.classList.add('done');
+        }
+    }
+}
+
+// ============================================================
+// FIX #2 — STATUS MODAL (اختیاری)
+// ============================================================
+function openOrderStatusModal(orderId) {
+    const orders = getOrders();
+    const order = orders.find(o => o.orderId === orderId);
+    if (!order) return;
+
+    const cached = state.orderStatusCache[orderId];
+    const statusRaw = cached?.rawStatus || order.statusRaw || order.status || 'pending';
+
     const modal = document.getElementById('orderStatusModal');
     if (!modal) return;
 
-    // 1) Show modal with current cached status
-    const cachedStatus = state.orderStatusCache[orderId] || order.status || 'pending';
-    renderOrderStatusModalContent(order, cachedStatus, null);
+    const content = document.getElementById('orderStatusModalContent');
+    if (content) {
+        content.innerHTML = buildStatusModalContent(order, statusRaw, cached);
+    }
+
     modal.classList.add('show');
 
-    // 2) Fetch fresh status from API (non-blocking — modal already visible)
-    try {
-        const server = getServers().find(s => s.id === order.serverId);
-        if (!server) throw new Error('سرور یافت نشد');
-
-        const result = await callAPI(server, { action: 'status', order: orderId });
-        if (result.error) throw new Error(result.error);
-
-        const newStatus = (result.status || 'pending').toLowerCase();
-        state.orderStatusCache[orderId] = newStatus;
-        updateOrder(orderId, { status: newStatus });
-
-        // Update modal with fresh data (include reason/progress if provided)
-        renderOrderStatusModalContent(order, newStatus, result);
-
-        // Update the inline status row behind the modal
-        const statusRow = document.getElementById(`status-row-${orderId}`);
-        if (statusRow) {
-            statusRow.innerHTML = `<div class="order-status-text ${getStatusClass(newStatus)}">${getStatusLabel(newStatus)}</div>`;
-        }
-
-        // Update emoji in the card header
-        const card = document.querySelector(`.order-refresh-btn[data-order-id="${orderId}"]`)?.closest('.order-card');
-        if (card) {
-            const nameEl = card.querySelector('.order-service-name');
-            const emoji = getStatusEmoji(newStatus);
-            if (nameEl) {
-                nameEl.innerHTML = `<span class="status-emoji">${emoji}</span>${order.serviceName}${order.isCustomComment ? '<span style="background:linear-gradient(135deg,var(--purple),var(--pink));color:white;font-size:9px;font-weight:800;padding:2px 6px;border-radius:6px;">💬 کامنت</span>' : ''}`;
+    if (!order.isVpn) {
+        refreshSingleOrderStatus(orderId).then(() => {
+            const newCached = state.orderStatusCache[orderId];
+            if (newCached && content) {
+                content.innerHTML = buildStatusModalContent(
+                    order,
+                    newCached.rawStatus,
+                    newCached
+                );
             }
-            // Hide the refresh button if approved/completed
-            if (['completed', 'approved'].includes(newStatus)) {
-                const btn = card.querySelector('.order-refresh-btn');
-                if (btn) btn.remove();
-            }
-        }
-    } catch (err) {
-        console.warn('status fetch failed:', err.message);
-        // Keep showing cached status — silently ignore network error inside modal
+        });
     }
 }
 
-function closeOrderStatusModal() {
-    const modal = document.getElementById('orderStatusModal');
-    if (modal) modal.classList.remove('show');
-    state.currentStatusOrder = null;
-}
+function buildStatusModalContent(order, rawStatus, data) {
+    const statusClass = getStatusClass(rawStatus);
+    const statusLabel = getStatusLabel(rawStatus);
 
-/**
- * Renders the inner content of the order status modal based on `status`.
- * @param {object} order — the order object
- * @param {string} status — normalized status string
- * @param {object|null} apiResult — raw API response (may contain reason/progress)
- */
-function renderOrderStatusModalContent(order, status, apiResult) {
-    const container = document.getElementById('orderStatusModalContent');
-    if (!container) return;
-
-    const s = (status || 'pending').toLowerCase();
-    const normalized =
-        (s === 'approved' || s === 'completed')                       ? 'approved' :
-        (s === 'rejected' || s === 'canceled' || s === 'cancelled')   ? 'rejected' :
-        (s === 'in_progress' || s === 'inprogress' || s === 'processing') ? 'in_progress' :
-        'pending';
-
-    // Icon per status
     const icons = {
-        approved: `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>`,
-        pending:  `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>`,
-        rejected: `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>`,
-        in_progress: `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>`
-    };
-
-    const titles = {
-        approved:    '✅ سفارش تایید شد',
-        pending:     '⏱️ در انتظار بررسی',
-        rejected:    '❌ سفارش رد شد',
-        in_progress: '⚙️ در حال انجام'
+        completed: `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>`,
+        pending:   `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>`,
+        canceled:  `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>`,
+        processing:`<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>`
     };
 
     const subtitles = {
-        approved:    'سفارش شما با موفقیت تکمیل و تحویل داده شد.',
-        pending:     'سفارش شما در صف بررسی قرار دارد. لطفاً کمی صبر کنید.',
-        rejected:    'متأسفانه سفارش شما رد شده است.',
-        in_progress: 'سفارش شما در حال انجام است. فرایند در حال پردازش است.'
+        completed: 'سفارش شما با موفقیت تکمیل و تحویل داده شد.',
+        pending:   'سفارش در صف بررسی قرار دارد. کمی صبر کنید.',
+        canceled:  'سفارش شما لغو یا رد شده است.',
+        processing:'سفارش در حال پردازش است. فرایند به‌زودی تکمیل می‌شود.'
     };
 
-    // Progress (only for in_progress)
-    const progress = parseInt(apiResult?.progress ?? apiResult?.percent ?? 50) || 50;
+    const startCount = data?.start_count && data.start_count !== '0' ? formatToman(parseInt(data.start_count)) : '—';
+    const remains = data?.remains && data.remains !== '0' ? formatToman(parseInt(data.remains)) : '—';
 
-    // Reason (only for rejected)
-    const reason = apiResult?.reason || apiResult?.error || 'دلیل رد شدن توسط ادمین اعلام نشده است. لطفاً با پشتیبانی تماس بگیرید.';
+    return `
+        <div class="status-modal-icon ${statusClass}">${icons[statusClass]}</div>
+        <div class="status-modal-title ${statusClass}">${statusLabel}</div>
+        <div class="status-modal-sub">${subtitles[statusClass]}</div>
 
-    let extraHtml = '';
-
-    if (normalized === 'rejected') {
-        extraHtml = `<div class="status-modal-reason">
-            <b>📋 دلیل:</b><br>${reason}
-        </div>`;
-    }
-
-    if (normalized === 'in_progress') {
-        extraHtml = `<div class="status-modal-progress">
-            <div class="status-modal-progress-bar">
-                <div class="status-modal-progress-fill" style="width: ${Math.min(100, Math.max(0, progress))}%"></div>
-            </div>
-            <div class="status-modal-progress-text">${progress}%</div>
-        </div>`;
-    }
-
-    container.innerHTML = `
-        <div class="status-modal-icon ${normalized}">
-            ${icons[normalized]}
+        <div class="tracking-code-box">
+            <div class="tracking-code-label">🆔 کد پیگیری سفارش</div>
+            <div class="tracking-code-value" id="trackingCodeValue">${order.orderId}</div>
+            <button class="tracking-copy-btn" onclick="copyTrackingCode('${order.orderId}')">
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                </svg>
+                کپی کد
+            </button>
         </div>
-        <div class="status-modal-title ${normalized}">${titles[normalized]}</div>
-        <div class="status-modal-sub">${subtitles[normalized]}</div>
 
         <div class="status-modal-info">
-            <div class="status-modal-info-row">
-                <span class="status-modal-info-label">🆔 کد سفارش</span>
-                <span class="status-modal-info-value">${order.orderId}</span>
-            </div>
             <div class="status-modal-info-row">
                 <span class="status-modal-info-label">📦 سرویس</span>
                 <span class="status-modal-info-value">${order.serviceName}</span>
@@ -2058,20 +2268,43 @@ function renderOrderStatusModalContent(order, status, apiResult) {
                 <span class="status-modal-info-value">${formatToman(order.totalPrice)} تومان</span>
             </div>
             <div class="status-modal-info-row">
+                <span class="status-modal-info-label">🚀 شروع شده</span>
+                <span class="status-modal-info-value">${startCount}</span>
+            </div>
+            <div class="status-modal-info-row">
+                <span class="status-modal-info-label">📉 باقی‌مانده</span>
+                <span class="status-modal-info-value">${remains}</span>
+            </div>
+            <div class="status-modal-info-row">
                 <span class="status-modal-info-label">📅 تاریخ</span>
                 <span class="status-modal-info-value">${order.date} — ${order.time}</span>
             </div>
         </div>
-
-        ${extraHtml}
     `;
 }
 
-// ============================================================
-// (Legacy refreshOrderStatus kept as a thin wrapper)
-// ============================================================
+function closeOrderStatusModal() {
+    const modal = document.getElementById('orderStatusModal');
+    if (modal) modal.classList.remove('show');
+}
+
+function copyTrackingCode(code) {
+    navigator.clipboard.writeText(code).then(() => {
+        const el = document.getElementById('trackingCodeValue');
+        if (el) {
+            const old = el.textContent;
+            el.textContent = '✅ کپی شد';
+            setTimeout(() => el.textContent = old, 1500);
+        }
+        showToast('کد پیگیری کپی شد', 'success');
+    }).catch(() => {
+        showToast('خطا در کپی', 'warning');
+    });
+}
+
+// (Wrapper قدیمی)
 async function refreshOrderStatus(orderId) {
-    openOrderStatusModal(orderId);
+    refreshSingleOrderStatus(orderId);
 }
 
 function clearOrdersHistory() {
@@ -2255,6 +2488,9 @@ function selectVpnVolume(volumeKey, volumeName) {
     );
 }
 
+// ============================================================
+// FIX #1 — RENDER VPN ORDER DETAILS (تخفیف برای همه)
+// ============================================================
 function renderVpnOrderDetails() {
     const container = document.getElementById('vpnServiceDetails');
     if (!container) return;
@@ -2264,11 +2500,9 @@ function renderVpnOrderDetails() {
     const vol = state.vpnVolume;
     const basePrice = state.vpnPrice;
 
-    /* FIX #1 — Use getVpnPriceBreakdown() to compute admin-specific
-       original + final prices. For admins we show a struck-through
-       original price and a discounted final price with a discount badge. */
     const { original, final: finalPrice, discount } = getVpnPriceBreakdown(basePrice);
-    const discountAmount = original ? (original - finalPrice) : 0;
+    const discountAmount = original - finalPrice;
+    const discountLabel  = getVpnDiscountLabel();
 
     let serviceName = svc === 'openvpn' ? '🚀 OpenVPN' : '🌀 V2Ray';
     let userTypeName = '';
@@ -2285,32 +2519,27 @@ function renderVpnOrderDetails() {
 
     const description = VPN_DESCRIPTIONS[svc] || '';
 
-    // Build the price block — show strikethrough for admin
-    const priceBlockHtml = original
-        ? `
-            <div class="price-calc" style="border-color: rgba(16,185,129,0.5); flex-direction: column; align-items: stretch; gap: 8px;">
-                <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap;">
-                    <div class="price-calc-label">💰 قیمت اصلی:</div>
-                    <div class="price-old" style="font-size: 14px;">${formatToman(original)} تومان</div>
+    const priceBlockHtml = `
+        <div class="price-calc" style="border-color: rgba(16,185,129,0.5); flex-direction: column; align-items: stretch; gap: 10px; padding: 16px 18px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap;">
+                <div class="price-calc-label">💰 قیمت اصلی:</div>
+                <div class="price-old" style="font-size: 14px;">${formatToman(original)} تومان</div>
+            </div>
+            <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap;">
+                <div class="price-calc-label">
+                    ${discountLabel}
+                    <span class="discount-badge">${discount}% تخفیف</span>
                 </div>
-                <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap;">
-                    <div class="price-calc-label">
-                        🎁 با تخفیف ادمین
-                        <span class="discount-badge">${discount}% تخفیف</span>
-                    </div>
-                    <div class="price-new" style="font-size: 20px;">${formatToman(finalPrice)} تومان</div>
+                <div class="price-new" style="font-size: 20px;">${formatToman(finalPrice)} تومان</div>
+            </div>
+            <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap; padding-top:8px; border-top:1px dashed var(--border-color);">
+                <div class="price-calc-label">💵 سود شما:</div>
+                <div style="color: var(--success); font-size: 14px; font-weight: 800; direction: ltr;">
+                    ${formatToman(discountAmount)} تومان
                 </div>
             </div>
-        `
-        : `
-            <div class="price-calc" style="border-color: rgba(168,85,247,0.5);">
-                <div class="price-calc-label">💰 هزینه نهایی:</div>
-                <div class="price-calc-value" style="color: var(--purple);">
-                    <span>${formatToman(finalPrice)}</span>
-                    <small>تومان</small>
-                </div>
-            </div>
-        `;
+        </div>
+    `;
 
     container.innerHTML = `
         <div class="detail-title">${serviceName} - ${volumeName}</div>
@@ -2362,7 +2591,6 @@ async function submitVpnOrder() {
     }
 
     const basePrice = state.vpnPrice;
-    /* FIX #1 — Admin pays basePrice minus 25%. */
     const { original, final: finalPrice, discount } = getVpnPriceBreakdown(basePrice);
     const wallet = getWallet();
 
@@ -2407,7 +2635,7 @@ async function submitVpnOrder() {
         vpnUserTypeText: userTypeName,
         vpnVolume: state.vpnVolume,
         vpnVolumeText: volumeName,
-        basePrice: original || basePrice,
+        basePrice: original,
         discount,
         totalPrice: finalPrice,
         date, time,
@@ -2426,7 +2654,7 @@ async function submitVpnOrder() {
         `• نوع سرویس: ${orderData.vpnServiceName}\n` +
         `• نوع کاربری: ${userTypeName}\n` +
         `• حجم کانفیگ: ${volumeName}\n` +
-        `• قیمت اصلی: ${formatToman(original || basePrice)} تومان\n` +
+        `• قیمت اصلی: ${formatToman(original)} تومان\n` +
         (discount > 0 ? `• تخفیف: ${discount}٪\n` : '') +
         `• مبلغ پرداختی: ${formatToman(finalPrice)} تومان\n` +
         `\n` +
@@ -3160,7 +3388,7 @@ document.addEventListener('DOMContentLoaded', () => {
         'redeemModal', 'adminServiceModal', 'categoryModal',
         'favoritesModal', 'orderTypeModal', 'vpnUserModal',
         'vpnVolumeModal', 'vpnInvoiceModal', 'agentModal',
-        'orderStatusModal' /* FIX #2 */
+        'orderStatusModal'
     ].forEach(id => {
         const el = document.getElementById(id);
         if (el) el.addEventListener('click', function(e) {
@@ -3168,7 +3396,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     });
 
-    // FIX #2 — close the status modal on ESC key
+    // بستن modal وضعیت با ESC
     document.addEventListener('keydown', function(e) {
         if (e.key === 'Escape') {
             const statusModal = document.getElementById('orderStatusModal');
